@@ -3,7 +3,7 @@ import Foundation
 /// Telegram MCP Server 配置
 public struct TelegramConfig: Sendable {
     /// Telegram API ID (从 https://my.telegram.org 获取)
-    public let apiId: Int32
+    public let apiId: Int
 
     /// Telegram API Hash (从 https://my.telegram.org 获取)
     public let apiHash: String
@@ -39,7 +39,7 @@ public struct TelegramConfig: Sendable {
     public static let defaultFilesDirectory = "tdlib_files"
 
     public init(
-        apiId: Int32,
+        apiId: Int,
         apiHash: String,
         databaseDirectory: String = TelegramConfig.defaultDatabaseDirectory,
         filesDirectory: String = TelegramConfig.defaultFilesDirectory,
@@ -65,7 +65,7 @@ public struct TelegramConfig: Sendable {
     /// 从环境变量创建配置
     public static func fromEnvironment() throws -> TelegramConfig {
         guard let apiIdStr = ProcessInfo.processInfo.environment["TELEGRAM_API_ID"],
-              let apiId = Int32(apiIdStr) else {
+              let apiId = Int(apiIdStr) else {
             throw TelegramError.missingConfiguration("TELEGRAM_API_ID")
         }
 

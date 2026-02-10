@@ -1,5 +1,8 @@
 import Foundation
-import TDLibKit
+@preconcurrency import TDLibKit
+
+/// JSON 可序列化的字典类型（解决 Sendable 问题）
+typealias JSONDict = [String: any Sendable]
 
 /// Telegram 客户端封装
 /// 封装 TDLibKit，提供简洁的 async/await API
@@ -86,24 +89,17 @@ public final class TelegramClient: @unchecked Sendable {
     /// 获取聊天列表
     public func getChats(limit: Int = 50) async throws -> String {
         guard let client = client else { throw TelegramError.clientNotInitialized }
-        let result = try await client.getChats(chatList: .chatListMain, limit: Int32(limit))
-        let chatInfos = try await withThrowingTaskGroup(of: [String: Any].self) { group in
-            for chatId in result.chatIds {
-                group.addTask {
-                    let chat = try await client.getChat(chatId: chatId)
-                    return [
-                        "id": chat.id,
-                        "title": chat.title,
-                        "type": self.chatTypeString(chat.type),
-                        "unread_count": chat.unreadCount
-                    ] as [String: Any]
-                }
-            }
-            var infos: [[String: Any]] = []
-            for try await info in group {
-                infos.append(info)
-            }
-            return infos
+        let result = try await client.getChats(chatList: .chatListMain, limit: limit)
+        var chatInfos: [[String: any Sendable]] = []
+        for chatId in result.chatIds {
+            let chat = try await client.getChat(chatId: chatId)
+            let info: [String: any Sendable] = [
+                "id": chat.id,
+                "title": chat.title,
+                "type": chatTypeString(chat.type),
+                "unread_count": chat.unreadCount
+            ]
+            chatInfos.append(info)
         }
         return toJSON(["chats": chatInfos, "total_count": chatInfos.count])
     }
@@ -112,7 +108,7 @@ public final class TelegramClient: @unchecked Sendable {
     public func getChat(chatId: Int64) async throws -> String {
         guard let client = client else { throw TelegramError.clientNotInitialized }
         let chat = try await client.getChat(chatId: chatId)
-        let dict: [String: Any] = [
+        let dict: [String: any Sendable] = [
             "id": chat.id,
             "title": chat.title,
             "type": chatTypeString(chat.type),
@@ -131,7 +127,7 @@ public final class TelegramClient: @unchecked Sendable {
             title: title,
             userIds: userIds
         )
-        return toJSON(["chat_id": result.id, "title": result.title])
+        return toJSON(["chat_id": result.chatId, "success": true] as [String: any Sendable])
     }
 
     /// 创建频道/超级群
@@ -146,21 +142,21 @@ public final class TelegramClient: @unchecked Sendable {
             messageAutoDeleteTime: 0,
             title: title
         )
-        return toJSON(["chat_id": result.id, "title": result.title])
+        return toJSON(["chat_id": result.id, "title": result.title] as [String: any Sendable])
     }
 
     /// 离开聊天
     public func leaveChat(chatId: Int64) async throws -> String {
         guard let client = client else { throw TelegramError.clientNotInitialized }
         _ = try await client.leaveChat(chatId: chatId)
-        return toJSON(["success": true, "chat_id": chatId])
+        return toJSON(["success": true, "chat_id": chatId] as [String: any Sendable])
     }
 
     /// 修改聊天标题
     public func editChatTitle(chatId: Int64, title: String) async throws -> String {
         guard let client = client else { throw TelegramError.clientNotInitialized }
         _ = try await client.setChatTitle(chatId: chatId, title: title)
-        return toJSON(["success": true, "chat_id": chatId, "title": title])
+        return toJSON(["success": true, "chat_id": chatId, "title": title] as [String: any Sendable])
     }
 
     // MARK: - Message Operations
@@ -171,12 +167,12 @@ public final class TelegramClient: @unchecked Sendable {
         let result = try await client.getChatHistory(
             chatId: chatId,
             fromMessageId: fromMessageId,
-            limit: Int32(limit),
+            limit: limit,
             offset: 0,
             onlyLocal: false
         )
         let messages = (result.messages ?? []).map { messageToDict($0) }
-        return toJSON(["messages": messages, "total_count": result.totalCount])
+        return toJSON(["messages": messages, "total_count": result.totalCount] as [String: any Sendable])
     }
 
     /// 发送消息
@@ -190,10 +186,10 @@ public final class TelegramClient: @unchecked Sendable {
         let result = try await client.sendMessage(
             chatId: chatId,
             inputMessageContent: content,
-            messageThreadId: 0,
             options: nil,
             replyMarkup: nil,
-            replyTo: nil
+            replyTo: nil,
+            topicId: nil
         )
         return toJSON(messageToDict(result))
     }
@@ -209,14 +205,14 @@ public final class TelegramClient: @unchecked Sendable {
         let result = try await client.sendMessage(
             chatId: chatId,
             inputMessageContent: content,
-            messageThreadId: 0,
             options: nil,
             replyMarkup: nil,
-            replyTo: .messageReplyToMessage(InputMessageReplyToMessage(
-                chatId: chatId,
+            replyTo: .inputMessageReplyToMessage(InputMessageReplyToMessage(
+                checklistTaskId: 0,
                 messageId: messageId,
                 quote: nil
-            ))
+            )),
+            topicId: nil
         )
         return toJSON(messageToDict(result))
     }
@@ -246,18 +242,19 @@ public final class TelegramClient: @unchecked Sendable {
             fromChatId: fromChatId,
             messageIds: messageIds,
             options: nil,
+            removeCaption: false,
             sendCopy: false,
-            removeCaption: false
+            topicId: nil
         )
-        let messages = (result.messages ?? []).compactMap { $0 }.map { messageToDict($0) }
-        return toJSON(["messages": messages, "count": messages.count])
+        let messages = (result.messages ?? []).map { messageToDict($0) }
+        return toJSON(["messages": messages, "count": messages.count] as [String: any Sendable])
     }
 
     /// 删除消息
     public func deleteMessages(chatId: Int64, messageIds: [Int64]) async throws -> String {
         guard let client = client else { throw TelegramError.clientNotInitialized }
         _ = try await client.deleteMessages(chatId: chatId, messageIds: messageIds, revoke: true)
-        return toJSON(["success": true, "deleted_count": messageIds.count])
+        return toJSON(["success": true, "deleted_count": messageIds.count] as [String: any Sendable])
     }
 
     /// 获取单条消息
@@ -273,61 +270,44 @@ public final class TelegramClient: @unchecked Sendable {
     public func getContacts() async throws -> String {
         guard let client = client else { throw TelegramError.clientNotInitialized }
         let result = try await client.getContacts()
-        let users = try await withThrowingTaskGroup(of: [String: Any].self) { group in
-            for userId in result.userIds {
-                group.addTask {
-                    let user = try await client.getUser(userId: userId)
-                    return self.userToDict(user)
-                }
-            }
-            var infos: [[String: Any]] = []
-            for try await info in group {
-                infos.append(info)
-            }
-            return infos
+        var users: [[String: any Sendable]] = []
+        for userId in result.userIds {
+            let user = try await client.getUser(userId: userId)
+            users.append(userToDict(user))
         }
-        return toJSON(["contacts": users, "total_count": users.count])
+        return toJSON(["contacts": users, "total_count": users.count] as [String: any Sendable])
     }
 
     /// 搜索联系人
     public func searchContacts(query: String, limit: Int = 20) async throws -> String {
         guard let client = client else { throw TelegramError.clientNotInitialized }
-        let result = try await client.searchContacts(limit: Int32(limit), query: query)
-        let users = try await withThrowingTaskGroup(of: [String: Any].self) { group in
-            for userId in result.userIds {
-                group.addTask {
-                    let user = try await client.getUser(userId: userId)
-                    return self.userToDict(user)
-                }
-            }
-            var infos: [[String: Any]] = []
-            for try await info in group {
-                infos.append(info)
-            }
-            return infos
+        let result = try await client.searchContacts(limit: limit, query: query)
+        var users: [[String: any Sendable]] = []
+        for userId in result.userIds {
+            let user = try await client.getUser(userId: userId)
+            users.append(userToDict(user))
         }
-        return toJSON(["contacts": users, "total_count": users.count])
+        return toJSON(["contacts": users, "total_count": users.count] as [String: any Sendable])
     }
 
     /// 添加联系人
     public func addContact(phoneNumber: String, firstName: String, lastName: String) async throws -> String {
         guard let client = client else { throw TelegramError.clientNotInitialized }
-        let contact = Contact(
+        let contact = ImportedContact(
             firstName: firstName,
             lastName: lastName,
-            phoneNumber: phoneNumber,
-            userId: 0,
-            vcard: ""
+            note: nil,
+            phoneNumber: phoneNumber
         )
-        _ = try await client.addContact(contact: contact, sharePhoneNumber: false)
-        return toJSON(["success": true, "phone": phoneNumber, "name": "\(firstName) \(lastName)"])
+        _ = try await client.addContact(contact: contact, sharePhoneNumber: false, userId: 0)
+        return toJSON(["success": true, "phone": phoneNumber, "name": "\(firstName) \(lastName)"] as [String: any Sendable])
     }
 
-    /// 删除联系人 (通过 removeContacts)
+    /// 删除联系人
     public func deleteContact(userId: Int64) async throws -> String {
         guard let client = client else { throw TelegramError.clientNotInitialized }
         _ = try await client.removeContacts(userIds: [userId])
-        return toJSON(["success": true, "user_id": userId])
+        return toJSON(["success": true, "user_id": userId] as [String: any Sendable])
     }
 
     // MARK: - User Operations
@@ -353,7 +333,7 @@ public final class TelegramClient: @unchecked Sendable {
             blockList: .blockListMain,
             senderId: .messageSenderUser(MessageSenderUser(userId: userId))
         )
-        return toJSON(["success": true, "user_id": userId, "blocked": true])
+        return toJSON(["success": true, "user_id": userId, "blocked": true] as [String: any Sendable])
     }
 
     /// 取消屏蔽用户
@@ -363,7 +343,7 @@ public final class TelegramClient: @unchecked Sendable {
             blockList: nil,
             senderId: .messageSenderUser(MessageSenderUser(userId: userId))
         )
-        return toJSON(["success": true, "user_id": userId, "blocked": false])
+        return toJSON(["success": true, "user_id": userId, "blocked": false] as [String: any Sendable])
     }
 
     // MARK: - Group Admin Operations
@@ -377,20 +357,20 @@ public final class TelegramClient: @unchecked Sendable {
         case .chatTypeBasicGroup(let info):
             let group = try await client.getBasicGroupFullInfo(basicGroupId: info.basicGroupId)
             let members = group.members.map { memberToDict($0) }
-            return toJSON(["members": members, "total_count": members.count])
+            return toJSON(["members": members, "total_count": members.count] as [String: any Sendable])
 
         case .chatTypeSupergroup(let info):
             let result = try await client.getSupergroupMembers(
                 filter: nil,
-                limit: Int32(limit),
+                limit: limit,
                 offset: 0,
                 supergroupId: info.supergroupId
             )
             let members = result.members.map { memberToDict($0) }
-            return toJSON(["members": members, "total_count": result.totalCount])
+            return toJSON(["members": members, "total_count": result.totalCount] as [String: any Sendable])
 
         default:
-            return toJSON(["members": [] as [Any], "total_count": 0])
+            return toJSON(["members": [] as [String], "total_count": 0] as [String: any Sendable])
         }
     }
 
@@ -398,7 +378,7 @@ public final class TelegramClient: @unchecked Sendable {
     public func addChatMembers(chatId: Int64, userIds: [Int64]) async throws -> String {
         guard let client = client else { throw TelegramError.clientNotInitialized }
         _ = try await client.addChatMembers(chatId: chatId, userIds: userIds)
-        return toJSON(["success": true, "chat_id": chatId, "added_count": userIds.count])
+        return toJSON(["success": true, "chat_id": chatId, "added_count": userIds.count] as [String: any Sendable])
     }
 
     /// 提升为管理员
@@ -415,6 +395,7 @@ public final class TelegramClient: @unchecked Sendable {
                 canEditStories: false,
                 canInviteUsers: true,
                 canManageChat: true,
+                canManageDirectMessages: false,
                 canManageTopics: false,
                 canManageVideoChats: true,
                 canPinMessages: true,
@@ -426,15 +407,15 @@ public final class TelegramClient: @unchecked Sendable {
             )
         ))
         _ = try await client.setChatMemberStatus(chatId: chatId, memberId: .messageSenderUser(MessageSenderUser(userId: userId)), status: status)
-        return toJSON(["success": true, "chat_id": chatId, "user_id": userId, "role": "administrator"])
+        return toJSON(["success": true, "chat_id": chatId, "user_id": userId, "role": "administrator"] as [String: any Sendable])
     }
 
     /// 取消管理员
     public func demoteAdmin(chatId: Int64, userId: Int64) async throws -> String {
         guard let client = client else { throw TelegramError.clientNotInitialized }
-        let status = ChatMemberStatus.chatMemberStatusMember
+        let status = ChatMemberStatus.chatMemberStatusMember(ChatMemberStatusMember(memberUntilDate: 0))
         _ = try await client.setChatMemberStatus(chatId: chatId, memberId: .messageSenderUser(MessageSenderUser(userId: userId)), status: status)
-        return toJSON(["success": true, "chat_id": chatId, "user_id": userId, "role": "member"])
+        return toJSON(["success": true, "chat_id": chatId, "user_id": userId, "role": "member"] as [String: any Sendable])
     }
 
     /// 封禁用户
@@ -442,7 +423,7 @@ public final class TelegramClient: @unchecked Sendable {
         guard let client = client else { throw TelegramError.clientNotInitialized }
         let status = ChatMemberStatus.chatMemberStatusBanned(ChatMemberStatusBanned(bannedUntilDate: 0))
         _ = try await client.setChatMemberStatus(chatId: chatId, memberId: .messageSenderUser(MessageSenderUser(userId: userId)), status: status)
-        return toJSON(["success": true, "chat_id": chatId, "user_id": userId, "banned": true])
+        return toJSON(["success": true, "chat_id": chatId, "user_id": userId, "banned": true] as [String: any Sendable])
     }
 
     /// 解封用户
@@ -450,7 +431,7 @@ public final class TelegramClient: @unchecked Sendable {
         guard let client = client else { throw TelegramError.clientNotInitialized }
         let status = ChatMemberStatus.chatMemberStatusLeft
         _ = try await client.setChatMemberStatus(chatId: chatId, memberId: .messageSenderUser(MessageSenderUser(userId: userId)), status: status)
-        return toJSON(["success": true, "chat_id": chatId, "user_id": userId, "banned": false])
+        return toJSON(["success": true, "chat_id": chatId, "user_id": userId, "banned": false] as [String: any Sendable])
     }
 
     // MARK: - Search Operations
@@ -462,39 +443,31 @@ public final class TelegramClient: @unchecked Sendable {
             chatId: chatId,
             filter: nil,
             fromMessageId: 0,
-            limit: Int32(limit),
-            messageThreadId: 0,
+            limit: limit,
             offset: 0,
             query: query,
-            savedMessagesTopicId: 0,
-            senderId: nil
+            senderId: nil,
+            topicId: nil
         )
-        let messages = (result.messages ?? []).map { messageToDict($0) }
-        return toJSON(["messages": messages, "total_count": result.totalCount])
+        let messages = result.messages.map { messageToDict($0) }
+        return toJSON(["messages": messages, "total_count": result.totalCount] as [String: any Sendable])
     }
 
     /// 搜索公共聊天
     public func searchPublicChats(query: String) async throws -> String {
         guard let client = client else { throw TelegramError.clientNotInitialized }
         let result = try await client.searchPublicChats(query: query)
-        let chats = try await withThrowingTaskGroup(of: [String: Any].self) { group in
-            for chatId in result.chatIds {
-                group.addTask {
-                    let chat = try await client.getChat(chatId: chatId)
-                    return [
-                        "id": chat.id,
-                        "title": chat.title,
-                        "type": self.chatTypeString(chat.type)
-                    ] as [String: Any]
-                }
-            }
-            var infos: [[String: Any]] = []
-            for try await info in group {
-                infos.append(info)
-            }
-            return infos
+        var chats: [[String: any Sendable]] = []
+        for chatId in result.chatIds {
+            let chat = try await client.getChat(chatId: chatId)
+            let info: [String: any Sendable] = [
+                "id": chat.id,
+                "title": chat.title,
+                "type": chatTypeString(chat.type)
+            ]
+            chats.append(info)
         }
-        return toJSON(["chats": chats, "total_count": chats.count])
+        return toJSON(["chats": chats, "total_count": chats.count] as [String: any Sendable])
     }
 
     // MARK: - Private Helpers
@@ -512,7 +485,6 @@ public final class TelegramClient: @unchecked Sendable {
         switch state {
         case .authorizationStateWaitTdlibParameters:
             authState = .waitingForTdlibParameters
-            // 自动设置 TDLib 参数
             Task {
                 try? await client.setTdlibParameters(
                     apiHash: config.apiHash,
@@ -568,15 +540,14 @@ public final class TelegramClient: @unchecked Sendable {
         }
     }
 
-    private func messageToDict(_ message: Message) -> [String: Any] {
-        var dict: [String: Any] = [
+    private func messageToDict(_ message: Message) -> [String: any Sendable] {
+        var dict: [String: any Sendable] = [
             "id": message.id,
             "chat_id": message.chatId,
             "date": message.date,
             "is_outgoing": message.isOutgoing
         ]
 
-        // Sender
         switch message.senderId {
         case .messageSenderUser(let user):
             dict["sender_user_id"] = user.userId
@@ -584,7 +555,6 @@ public final class TelegramClient: @unchecked Sendable {
             dict["sender_chat_id"] = chat.chatId
         }
 
-        // Content
         switch message.content {
         case .messageText(let text):
             dict["content_type"] = "text"
@@ -616,8 +586,8 @@ public final class TelegramClient: @unchecked Sendable {
         return dict
     }
 
-    private func userToDict(_ user: User) -> [String: Any] {
-        var dict: [String: Any] = [
+    private func userToDict(_ user: User) -> [String: any Sendable] {
+        var dict: [String: any Sendable] = [
             "id": user.id,
             "first_name": user.firstName,
             "last_name": user.lastName,
@@ -638,8 +608,8 @@ public final class TelegramClient: @unchecked Sendable {
         return dict
     }
 
-    private func memberToDict(_ member: ChatMember) -> [String: Any] {
-        var dict: [String: Any] = [:]
+    private func memberToDict(_ member: ChatMember) -> [String: any Sendable] {
+        var dict: [String: any Sendable] = [:]
 
         switch member.memberId {
         case .messageSenderUser(let user):
@@ -668,8 +638,15 @@ public final class TelegramClient: @unchecked Sendable {
     }
 
     /// 将字典转为 JSON 字符串
-    private func toJSON(_ dict: [String: Any]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
+    private func toJSON(_ dict: [String: any Sendable]) -> String {
+        // 将 [String: any Sendable] 转为 JSONSerialization 兼容的类型
+        let jsonCompatible = dict.mapValues { value -> Any in
+            if let arr = value as? [[String: any Sendable]] {
+                return arr.map { $0.mapValues { $0 as Any } }
+            }
+            return value as Any
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: jsonCompatible, options: [.sortedKeys]),
               let str = String(data: data, encoding: .utf8) else {
             return "{}"
         }

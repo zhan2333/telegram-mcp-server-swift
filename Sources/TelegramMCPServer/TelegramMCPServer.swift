@@ -65,7 +65,7 @@ public final class TelegramMCPServer: MCPServerProtocol, @unchecked Sendable {
     }
 
     /// 便捷初始化
-    public init(apiId: Int32, apiHash: String) {
+    public init(apiId: Int, apiHash: String) {
         let config = TelegramConfig(apiId: apiId, apiHash: apiHash)
         self.telegramClient = TelegramClient(config: config)
         initializeTools()
