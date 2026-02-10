@@ -149,15 +149,6 @@ Sources/TelegramMCPServer/
     └── ValueExtensions.swift    # MCP Value 扩展
 ```
 
-## 与 NotionMCPServer 对比
-
-| 维度 | NotionMCPServer | TelegramMCPServer |
-|------|----------------|-------------------|
-| 底层通信 | HTTP REST API | TDLib (C++ 本地库) |
-| 认证方式 | API Key (一次配置) | Session (首次需验证码) |
-| 状态模型 | 无状态 | 有状态 (本地数据库) |
-| 数据获取 | 主动请求 | 请求 + 被动推送 (updates) |
-| 依赖库 | 无 (纯 URLSession) | TDLibKit + TDLibFramework |
 
 ## 系统要求
 
