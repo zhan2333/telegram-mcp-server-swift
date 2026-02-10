@@ -17,7 +17,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.10.0"),
-        .package(url: "https://github.com/Swiftgram/TDLibKit.git", branch: "master"),
+        .package(url: "https://github.com/Swiftgram/TDLibKit.git", branch: "main"),
     ],
     targets: [
         .target(
